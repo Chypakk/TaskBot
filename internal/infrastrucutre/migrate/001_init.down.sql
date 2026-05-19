@@ -1,0 +1,3 @@
+DROP TABLE IS EXISTS notifications;
+DROP TABLE IS EXISTS tasks;
+DROP TABLE IS EXISTS users;
