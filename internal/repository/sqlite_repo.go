@@ -62,7 +62,7 @@ func (r *SQLiteRepo) GetUserByID(ctx context.Context, id int) (*domain.User, err
 
 // ============ TaskRepository ============
 
-func (r *SQLiteRepo) CreateTask(ctx context.Context, task *domain.Task) error {
+func (r *SQLiteRepo) Create(ctx context.Context, task *domain.Task) error {
 	res, err := r.db.ExecContext(ctx,
 		`INSERT INTO tasks (user_id, name, importance, start_date, duration_days) 
          VALUES (?, ?, ?, ?, ?)`,
@@ -81,7 +81,7 @@ func (r *SQLiteRepo) CreateTask(ctx context.Context, task *domain.Task) error {
 	return nil
 }
 
-func (r *SQLiteRepo) GetTaskByID(ctx context.Context, id int) (*domain.Task, error) {
+func (r *SQLiteRepo) GetByID(ctx context.Context, id int) (*domain.Task, error) {
 	row := r.db.QueryRowContext(ctx, "SELECT id, user_id, name, start_date, duration_days, importance FROM tasks WHERE id = ?", id)
 
 	var t domain.Task
@@ -97,7 +97,7 @@ func (r *SQLiteRepo) GetTaskByID(ctx context.Context, id int) (*domain.Task, err
 	return &t, nil
 }
 
-func (r *SQLiteRepo) GetTasksByUserID(ctx context.Context, userID int) ([]*domain.Task, error) {
+func (r *SQLiteRepo) GetByUserID(ctx context.Context, userID int) ([]*domain.Task, error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT id, user_id, name, importance, start_date, duration_days FROM tasks WHERE user_id = ? ORDER BY created_at DESC", userID)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
@@ -117,7 +117,7 @@ func (r *SQLiteRepo) GetTasksByUserID(ctx context.Context, userID int) ([]*domai
 	return tasks, rows.Err()
 }
 
-func (r *SQLiteRepo) UpdateTask(ctx context.Context, task *domain.Task) error {
+func (r *SQLiteRepo) Update(ctx context.Context, task *domain.Task) error {
 	_, err := r.db.ExecContext(ctx,
 		"UPDATE tasks SET name = ?, importance = ?, start_date = ?, duration_days = ? WHERE id = ?",
 		task.Name, task.Importance, task.StartDate, task.DurationDays, task.ID,
@@ -128,7 +128,7 @@ func (r *SQLiteRepo) UpdateTask(ctx context.Context, task *domain.Task) error {
 	return nil
 }
 
-func (r *SQLiteRepo) DeleteTask(ctx context.Context, id int) error {
+func (r *SQLiteRepo) Delete(ctx context.Context, id int) error {
 	// notifications удалятся автоматически благодаря ON DELETE CASCADE
 	_, err := r.db.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
 	if err != nil {

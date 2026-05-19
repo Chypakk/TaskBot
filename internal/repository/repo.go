@@ -21,8 +21,8 @@ type NotificationRepository interface {
 }
 
 type UserRepository interface{
-	Create(ctx context.Context, user *domain.User) (*domain.User, error)
+	CreateUser(ctx context.Context, user *domain.User) (*domain.User, error)
 	//получение пользователя по ID телеграмма
-	GetByTGID(ctx context.Context, id int) (*domain.User, error)
-	GetByUserID(ctx context.Context, id int) (*domain.User, error)
+	GetUserByTGID(ctx context.Context, id int) (*domain.User, error)
+	GetUserByID(ctx context.Context, id int) (*domain.User, error)
 }

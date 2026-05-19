@@ -2,61 +2,82 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
+	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"tg_sheduler/internal/bot"
 	"tg_sheduler/internal/domain"
 	"tg_sheduler/internal/infrastrucutre"
 	"tg_sheduler/internal/repository"
 	"tg_sheduler/internal/scheduler"
 	"time"
+
+	tele "gopkg.in/telebot.v4"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// 1. БД
+	envPath := findEnvFile()
+	if err := godotenv.Load(envPath); err != nil {
+		log.Printf("⚠️ .env not loaded: %v", err)
+	}
+
+	// 1. БД + репо
 	db, err := infrastrucutre.NewSqliteStorage()
 	if err != nil {
-		log.Fatalf("DB init: %v", err)
+		log.Fatalf("🗄️ DB init: %v", err)
 	}
 	defer db.Close()
-
 	repo := repository.NewSQLiteRepo(db)
 
-	// 2. Тестовые данные (можно убрать потом)
-	user, _ := repo.CreateUser(ctx, &domain.User{TG_ID: 123456, Username: "test"})
-	loc, _ := time.LoadLocation("Europe/Moscow")
+	// 2. Токен
+	token := os.Getenv("TOKEN")
+	if token == "" {
+		log.Fatal("❌ TOKEN not set in .env")
+	}
+
+	// 3. Таймзона (можно вынести в конфиг)
+	loc, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		log.Printf("⚠️ Failed to load timezone, using local: %v", err)
+		loc = time.Now().Location()
+	}
+
+	// 4. Бот + FSM + калькулятор
+	tgNotif, err := scheduler.NewTelegramNotifier(token, repo)
+	if err != nil {
+		log.Fatalf("🤖 Bot init: %v", err)
+	}
+
+	fsm := bot.NewFSM()
 	calc := domain.NewTaskCalculator(loc)
-	start, days, _ := calc.ParseTaskInput("18.05 3") // Вчерашняя дата для мгновенного триггера
+	handlers := bot.NewHandlers(repo, repo, repo, fsm, calc, loc)
 
-	task := &domain.Task{
-		UserID: user.ID, Name: "Тестовая задача", Importance: int(domain.High),
-		StartDate: start, DurationDays: days,
-	}
-	if err := repo.CreateTask(ctx, task); err != nil {
-		log.Fatalf("CreateTask: %v", err)
-	}
+	botInstance := tgNotif.GetBot()
 
-	notifs := calc.CalculateNotifications(start, days, domain.Importance(task.Importance))
-	for i := range notifs {
-		notifs[i].TaskID = task.ID
-		notifs[i].UserID = user.ID
-	}
-	if err := repo.CreateBatch(ctx, notifs); err != nil {
-		log.Fatalf("CreateNotifs: %v", err)
-	}
-	fmt.Println("✅ Test data inserted")
+	// Регистрация хендлеров
+	botInstance.Handle("/start", handlers.Start)
+	botInstance.Handle("/cancel", handlers.Cancel)
+	botInstance.Handle(tele.OnCallback, handlers.Callback)
+	botInstance.Handle(tele.OnText, handlers.HandleText)
 
-	// 3. Запуск шедулера
-	sched := scheduler.New(repo, 10*time.Second, new(ConsoleNotifier)) // Для теста каждые 10 сек
+	// 5. Шедулер уведомлений
+	sched := scheduler.New(repo, 10*time.Second, tgNotif)
 	go sched.Start(ctx)
 
-	// 4. Ждём сигнала выхода
+	// 6. Запуск бота
+	go tgNotif.Start()
+	log.Println("🚀 Bot is running...")
+
 	<-ctx.Done()
-	log.Println("👋 App shutting down...")
+	tgNotif.Stop()
+	log.Println("👋 Graceful shutdown")
 }
 
 type ConsoleNotifier struct{}
@@ -64,4 +85,26 @@ type ConsoleNotifier struct{}
 func (n *ConsoleNotifier) Notify(ctx context.Context, userID, taskID int, label, timeStr string) error {
     log.Printf("[MOCK SEND] To %d: %d [%s] at %s", userID, taskID, label, timeStr)
     return nil
+}
+
+// поиск env файла
+func findEnvFile() string {
+	// Рядом с exe
+	if exePath, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exePath)
+		envPath := filepath.Join(dir, ".env")
+		if _, err := os.Stat(envPath); err == nil {
+			return envPath
+		}
+	}
+
+	// В текущей рабочей директории
+	if cwd, err := os.Getwd(); err == nil {
+		envPath := filepath.Join(cwd, ".env")
+		if _, err := os.Stat(envPath); err == nil {
+			return envPath
+		}
+	}
+
+	return ""
 }
