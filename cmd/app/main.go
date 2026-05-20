@@ -68,7 +68,7 @@ func main() {
 	botInstance.Handle(tele.OnText, handlers.HandleText)
 
 	// 5. Шедулер уведомлений
-	sched := scheduler.New(repo, 10*time.Second, tgNotif)
+	sched := scheduler.New(repo, repo, 10*time.Second, tgNotif)
 	go sched.Start(ctx)
 
 	// 6. Запуск бота
