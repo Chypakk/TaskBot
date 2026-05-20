@@ -69,7 +69,7 @@ func (r *SQLiteRepo) Create(ctx context.Context, task *domain.Task) error {
 		task.UserID,
 		task.Name,
 		task.Importance,
-		task.StartDate,
+		task.StartDate.Format("2006-01-02"),
 		task.DurationDays,
 	)
 	if err != nil {
@@ -111,7 +111,7 @@ func (r *SQLiteRepo) GetByUserID(ctx context.Context, userID int) ([]*domain.Tas
 		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.Importance, &startDateStr, &t.DurationDays); err != nil {
 			return nil, err
 		}
-		t.StartDate, _ = time.Parse("2006-01-02", startDateStr)
+		t.StartDate, err = time.Parse("2006-01-02", startDateStr)
 		tasks = append(tasks, &t)
 	}
 	return tasks, rows.Err()
