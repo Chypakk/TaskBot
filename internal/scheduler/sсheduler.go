@@ -10,16 +10,18 @@ import (
 )
 
 type Scheduler struct {
-	repo     repository.NotificationRepository
-	interval time.Duration
-	notifier domain.Notifier
+	notifRepo repository.NotificationRepository
+	userRepo  repository.UserRepository
+	interval  time.Duration
+	notifier  domain.Notifier
 }
 
-func New(repo repository.NotificationRepository, interval time.Duration, notifier domain.Notifier) *Scheduler {
+func New(notifRepo repository.NotificationRepository, userRepo repository.UserRepository, interval time.Duration, notifier domain.Notifier) *Scheduler {
 	return &Scheduler{
-		repo:     repo,
-		interval: interval,
-		notifier: notifier,
+		notifRepo: notifRepo,
+		userRepo:  userRepo,
+		interval:  interval,
+		notifier:  notifier,
 	}
 }
 
@@ -43,7 +45,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 
 func (s *Scheduler) tick(ctx context.Context) {
 	// 1. Забираем пачку готовых уведомлений
-	notifs, err := s.repo.GetNotifications(ctx)
+	notifs, err := s.notifRepo.GetNotifications(ctx)
 	if err != nil {
 		log.Printf("Scheduler tick error (fetch): %v", err)
 		return
@@ -56,14 +58,19 @@ func (s *Scheduler) tick(ctx context.Context) {
 
 	// 2. Обрабатываем каждое
 	for _, n := range notifs {
-		if err := s.notifier.Notify(ctx, n.UserID, n.TaskID, n.Label, n.Time.Format("15:04 02.01")); err != nil {
+		user, err := s.userRepo.GetUserByID(ctx, n.UserID)
+		if err != nil {
+			log.Printf("⚠️ Failed to get user %d: %v", n.UserID, err)
+			continue
+		}
+		if err := s.notifier.Notify(ctx, user.TG_ID, n.TaskID, n.Label, n.Time.Format("15:04 02.01")); err != nil {
 			log.Printf("⚠️ Failed to notify user %d: %v", n.UserID, err)
 			// Не помечаем как sent, чтобы попробовать снова на следующем тике
 			continue
 		}
 
 		// 3. Помечаем как отправленное
-		if err := s.repo.MarkAsSent(ctx, n.ID); err != nil {
+		if err := s.notifRepo.MarkAsSent(ctx, n.ID); err != nil {
 			// Логируем, но не прерываем цикл. Повторная попытка на следующем тике.
 			log.Printf("️ Failed to mark notif %d as sent: %v", n.ID, err)
 		}

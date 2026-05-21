@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"tg_sheduler/internal/domain"
 	"time"
 )
@@ -93,7 +94,11 @@ func (r *SQLiteRepo) GetByID(ctx context.Context, id int) (*domain.Task, error) 
 	if err != nil {
 		return nil, fmt.Errorf("get task: %w", err)
 	}
-	t.StartDate, _ = time.Parse("2006-01-02", startDateStr)
+	dateOnly := strings.Split(startDateStr, " ")[0]
+	t.StartDate, err = time.Parse("2006-01-02", dateOnly)
+	if err != nil {
+		return nil, fmt.Errorf("parse start date: %w", err)
+	}
 	return &t, nil
 }
 
@@ -111,7 +116,11 @@ func (r *SQLiteRepo) GetByUserID(ctx context.Context, userID int) ([]*domain.Tas
 		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.Importance, &startDateStr, &t.DurationDays); err != nil {
 			return nil, err
 		}
-		t.StartDate, err = time.Parse("2006-01-02", startDateStr)
+		dateOnly := strings.Split(startDateStr, " ")[0]
+		t.StartDate, err = time.Parse("2006-01-02", dateOnly)
+		if err != nil {
+			return nil, fmt.Errorf("parse start date: %w", err)
+		}
 		tasks = append(tasks, &t)
 	}
 	return tasks, rows.Err()

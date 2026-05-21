@@ -76,13 +76,13 @@ func (h *Handlers) Start(c tele.Context) error {
 // Cancel — отмена текущего действия
 func (h *Handlers) Cancel(c tele.Context) error {
 	h.fsm.Reset(c.Sender().ID)
-	return c.Send("✅ Отменил. Главное меню:", func() *tele.ReplyMarkup {
-		m := &tele.ReplyMarkup{}
-		m.Inline(
-			m.Row(m.Data("✨ Создать задачу", "create_task"), m.Data("📋 Мои задачи", "my_tasks")),
-		)
-		return nil
-	}())
+
+	markup := &tele.ReplyMarkup{}
+	btnCreate := markup.Data("✨ Создать задачу", "create_task")
+	btnMyTasks := markup.Data("📋 Мои задачи", "my_tasks")
+	markup.Inline(markup.Row(btnCreate, btnMyTasks))
+
+	return c.Send("✅ Главное меню:", markup)
 }
 
 // Callback — обработка inline-кнопок
@@ -118,7 +118,7 @@ func (h *Handlers) Callback(c tele.Context) error {
 	case "\fedit_date":
 		taskID, _ := strconv.Atoi(payload)
 		h.fsm.Set(c.Sender().ID, FSMState{State: StateEditingDate, TaskID: taskID})
-		return c.Send("📅 Введите дату в формате:\n`19.05 5`\n_дата_начала пробел продолжительность_в_днях_\n(или /cancel)", tele.ModeMarkdown, tele.NoPreview)
+		return c.Send("📅 Введите дату в формате:\n`19.05 5`\nдата начала пробел продолжительность в днях\n(или /cancel)", tele.ModeMarkdown, tele.NoPreview)
 
 	case "\fedit_importance":
 		taskID, _ := strconv.Atoi(payload)
@@ -158,6 +158,11 @@ func (h *Handlers) HandleText(c tele.Context) error {
 
 	// Игнорируем команды в тексте
 	if strings.HasPrefix(text, "/") {
+		return nil
+	}
+
+	if text == "Вернуться к выбору" {
+		h.Cancel(c)
 		return nil
 	}
 
@@ -220,34 +225,36 @@ func (h *Handlers) handleCreatingDate(c tele.Context, input string) error {
 		return c.Send(fmt.Sprintf("❌ %v\nПопробуй ещё раз в формате `19.05 5`:", err), tele.ModeMarkdown)
 	}
 
-	// Сохраняем промежуточные данные
-	h.fsm.Set(c.Sender().ID, FSMState{
-		State:   StateCreatingImportance,
-		Payload: fmt.Sprintf("%s|%d", c.Text(), days), // временно: оригинальный ввод|дни
-		// название берём из предыдущего состояния
-	})
-
 	// Получаем название из предыдущего шага (храним в Payload предыдущего FSMState)
 	prev, _ := h.fsm.Get(c.Sender().ID)
 	name := prev.Payload // это название из шага 1
 
+	// Сохраняем промежуточные данные
+	h.fsm.Set(c.Sender().ID, FSMState{
+		State:   StateCreatingImportance,
+		Payload: fmt.Sprintf("%s|%s|%d", name, start.Format(time.RFC3339), days), // временно: название|оригинальный ввод|дни
+		// название берём из предыдущего состояния
+	})
+
+
+
 	// Кнопки важности
 	markup := &tele.ReplyMarkup{}
-	btn1 := markup.Data("1️⃣ Не важная", "imp_create:1")
-	btn2 := markup.Data("2️⃣ Важная", "imp_create:2")
-	btn3 := markup.Data("3️⃣ Очень важная", "imp_create:3")
+	btn1 := markup.Data("1️⃣ Не важная", "imp_create:0")
+	btn2 := markup.Data("2️⃣ Важная", "imp_create:1")
+	btn3 := markup.Data("3️⃣ Очень важная", "imp_create:2")
 	markup.Inline(
 		markup.Row(btn1, btn2, btn3),
 		markup.Row(markup.Data("🔙 Назад", "back")),
 	)
 
-	// Сохраняем данные задачи во временное хранилище (в самом FSM или можно в кэш)
-	// Для простоты — кодируем в Payload: "name|startRFC3339|days"
-	payload := fmt.Sprintf("%s|%s|%d", name, start.Format(time.RFC3339), days)
-	h.fsm.Set(c.Sender().ID, FSMState{
-		State:   StateCreatingImportance,
-		Payload: payload,
-	})
+	// // Сохраняем данные задачи во временное хранилище (в самом FSM или можно в кэш)
+	// // Для простоты — кодируем в Payload: "name|startRFC3339|days"
+	// payload := fmt.Sprintf("%s|%s|%d", name, start.Format(time.RFC3339), days)
+	// h.fsm.Set(c.Sender().ID, FSMState{
+	// 	State:   StateCreatingImportance,
+	// 	Payload: payload,
+	// })
 
 	return c.Send("🎯 Выбери *важность* задачи:", tele.ModeMarkdown, markup)
 }
@@ -355,7 +362,7 @@ func (h *Handlers) listTasks(c tele.Context) error {
 	if len(row) > 0 {
 		markup.Inline(markup.Row(row...))
 	}
-	markup.Inline(markup.Row(markup.Data("🔙 Назад", "back")))
+	// markup.Inline(markup.Row(markup.Data("🔙 Назад", "back")))
 
 	return c.Send(text.String(), markup, tele.ModeMarkdown)
 }
@@ -470,11 +477,13 @@ func (h *Handlers) handleEditingDate(c tele.Context, input string) error {
 // --- Показать кнопки важности для редактирования ---
 func (h *Handlers) showImportanceButtons(c tele.Context, taskID int) error {
 	markup := &tele.ReplyMarkup{}
+	var row []tele.Btn
 	for i := 1; i <= 3; i++ {
 		label := map[int]string{1: "1️⃣ Не важная", 2: "2️⃣ Важная", 3: "3️⃣ Очень важная"}[i]
-		markup.Inline(markup.Row(markup.Data(label, fmt.Sprintf("imp:%d:%d", i, taskID))))
+		row = append(row, markup.Data(label, fmt.Sprintf("imp:%d:%d", i-1, taskID)))
 	}
-	markup.Inline(markup.Row(markup.Data("🔙 Назад", fmt.Sprintf("edit:%d", taskID))))
+	markup.Inline(markup.Row(row...))
+	//markup.Inline(markup.Row(markup.Data("🔙 Назад", fmt.Sprintf("edit:%d", taskID))))
 
 	return c.Send("🔖 Выбери новую важность:", markup)
 }
