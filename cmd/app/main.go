@@ -15,6 +15,7 @@ import (
 	"time"
 
 	tele "gopkg.in/telebot.v4"
+	_ "time/tzdata"
 
 	"github.com/joho/godotenv"
 )
